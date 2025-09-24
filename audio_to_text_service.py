@@ -4,7 +4,7 @@ Audio to Text Conversion Service
 Supports multiple audio formats and languages including Spanish and English
 """
 
-from flask import Flask, request, jsonify, render_template, send_from_directory, send_file
+from flask import Flask, request, jsonify, render_template, send_from_directory, send_file, Response
 import speech_recognition as sr
 import pydub
 from pydub import AudioSegment
@@ -45,7 +45,11 @@ app.config['THREADED'] = True
 request_queue = deque()
 queue_lock = threading.Lock()
 active_requests = 0
-max_concurrent_requests = 5
+max_concurrent_requests = 2
+
+# Progress tracking for requests
+progress_tracker = {}
+progress_lock = threading.Lock()
 
 # Supported audio formats
 SUPPORTED_FORMATS = {
@@ -172,7 +176,7 @@ class AudioToTextConverter:
             logger.error(f"Error converting audio to WAV: {str(e)}")
             return False
     
-    def transcribe_audio(self, audio_path: str, language: str = 'auto') -> Dict[str, Any]:
+    def transcribe_audio(self, audio_path: str, language: str = 'auto', request_id: str = None) -> Dict[str, Any]:
         """Transcribe audio file to text"""
         result = {
             'success': False,
@@ -186,6 +190,9 @@ class AudioToTextConverter:
             # Try direct processing first, then fallback to conversion
             wav_path = audio_path
             audio_data = None
+            
+            if request_id:
+                update_progress(request_id, 25, "Loading audio file...")
             
             # Check if file is already WAV
             if audio_path.lower().endswith('.wav'):
@@ -208,6 +215,9 @@ class AudioToTextConverter:
                         result['error'] = "Failed to convert audio to WAV format"
                         return result
             
+            if request_id:
+                update_progress(request_id, 35, "Preparing for speech recognition...")
+            
             # Load audio file
             with sr.AudioFile(wav_path) as source:
                 # Adjust for ambient noise
@@ -229,8 +239,13 @@ class AudioToTextConverter:
                     if lang_code is None:  # auto-detect, default to English
                         lang_code = 'en-US'
                     
+                    if request_id:
+                        update_progress(request_id, 40, f"Loading {lang_code} model...")
                     model = self._get_vosk_model(lang_code)
-                    text, confidence, word_timestamps = self._transcribe_with_vosk(audio_data, model)
+                    
+                    if request_id:
+                        update_progress(request_id, 50, "Transcribing speech...")
+                    text, confidence, word_timestamps = self._transcribe_with_vosk(audio_data, model, request_id)
                     
                     if text and text.strip():
                         result['success'] = True
@@ -260,7 +275,7 @@ class AudioToTextConverter:
         
         return result
     
-    def _transcribe_with_vosk(self, audio_data, model) -> tuple:
+    def _transcribe_with_vosk(self, audio_data, model, request_id=None) -> tuple:
         """Transcribe using Vosk (offline only) with timestamps - optimized for large files"""
         try:
             # Log audio data info for debugging
@@ -302,7 +317,12 @@ class AudioToTextConverter:
                 processed_chunks += 1
                 # Log progress every 100 chunks to avoid spam
                 if processed_chunks % 100 == 0:
-                    logger.info(f"Processed {processed_chunks}/{total_chunks} chunks ({processed_chunks/total_chunks*100:.1f}%)")
+                    progress = processed_chunks/total_chunks*100
+                    logger.info(f"Processed {processed_chunks}/{total_chunks} chunks ({progress:.1f}%)")
+                    if request_id:
+                        # Map Vosk progress (0-100) to overall progress (50-75)
+                        overall_progress = 50 + (progress * 0.25)
+                        update_progress(request_id, int(overall_progress), f"Transcribing... {progress:.0f}%")
 
             # Get final result
             final_result = json_lib.loads(rec.FinalResult())
@@ -547,12 +567,33 @@ def end_request():
         active_requests = max(0, active_requests - 1)
         logger.info(f"Ended request. Active requests: {active_requests}")
 
+def update_progress(request_id: str, progress: int, message: str = ""):
+    """Update progress for a specific request"""
+    with progress_lock:
+        progress_tracker[request_id] = {
+            'progress': progress,
+            'message': message,
+            'timestamp': time.time()
+        }
+
+def get_progress(request_id: str) -> dict:
+    """Get progress for a specific request"""
+    with progress_lock:
+        return progress_tracker.get(request_id, {'progress': 0, 'message': 'Starting...'})
+
+def clear_progress(request_id: str):
+    """Clear progress for a specific request"""
+    with progress_lock:
+        if request_id in progress_tracker:
+            del progress_tracker[request_id]
+
 @app.route('/')
 def index():
     """Main page with upload form"""
     return render_template('index.html', 
                          supported_formats=list(SUPPORTED_FORMATS.keys()),
                          languages=list(LANGUAGE_MAPPING.keys()))
+
 
 @app.route('/api/convert', methods=['POST'])
 def convert_audio():
@@ -561,6 +602,8 @@ def convert_audio():
     if not can_process_request():
         return jsonify({'error': 'Server is busy. Please try again in a few moments.'}), 503
     
+    # Generate unique request ID for progress tracking
+    request_id = str(uuid.uuid4())
     start_request()
     temp_path = None
     doc_path = None
@@ -573,6 +616,8 @@ def convert_audio():
         file = request.files['audio_file']
         if file.filename == '':
             return jsonify({'error': 'No file selected'}), 400
+        
+        update_progress(request_id, 5, "Validating file...")
         
         # Check file size (limit to 25MB to prevent memory issues)
         file.seek(0, 2)  # Seek to end
@@ -594,13 +639,19 @@ def convert_audio():
                 'error': f'Unsupported file format: {file_ext}. Supported formats: {", ".join(SUPPORTED_FORMATS.keys())}'
             }), 400
         
+        update_progress(request_id, 10, "Saving file...")
+        
         # Save uploaded file
         temp_filename = f"{uuid.uuid4()}.{file_ext}"
         temp_path = os.path.join(app.config['UPLOAD_FOLDER'], temp_filename)
         file.save(temp_path)
         
+        update_progress(request_id, 20, "Processing audio...")
+        
         # Convert audio to text
-        result = converter.transcribe_audio(temp_path, language)
+        result = converter.transcribe_audio(temp_path, language, request_id)
+
+        update_progress(request_id, 80, "Creating Word document...")
 
         # Add metadata
         result['filename'] = filename
@@ -610,9 +661,13 @@ def convert_audio():
         # Create Word document
         doc_path = create_word_document(result, filename)
 
+        update_progress(request_id, 95, "Preparing download...")
+
         # Generate download filename
         base_name = os.path.splitext(filename)[0]
         download_filename = f"{base_name}_transcription.docx"
+
+        update_progress(request_id, 100, "Complete!")
 
         # Return the Word document as download
         return send_file(
@@ -662,6 +717,12 @@ def get_status():
             'queue_size': len(request_queue),
             'can_accept_requests': active_requests < max_concurrent_requests
         })
+
+@app.route('/api/progress/<request_id>')
+def get_progress_status(request_id):
+    """Get current progress for a specific request"""
+    progress_data = get_progress(request_id)
+    return jsonify(progress_data)
 
 @app.route('/api/convert-audio', methods=['POST'])
 def convert_audio_format():
