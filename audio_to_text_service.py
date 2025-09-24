@@ -594,10 +594,6 @@ def health_check():
         'supported_languages': len(LANGUAGE_MAPPING)
     })
 
-@app.route('/api/health', methods=['GET'])
-def health_check():
-    """Health check endpoint for Docker"""
-    return jsonify({'status': 'healthy', 'service': 'audio-to-text'}), 200
 
 @app.route('/api/test-offline')
 def test_offline_recognition():
