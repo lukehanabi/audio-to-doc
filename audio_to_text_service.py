@@ -171,13 +171,30 @@ class AudioToTextConverter:
         }
         
         try:
-            # Convert to WAV if needed
+            # Try direct processing first, then fallback to conversion
             wav_path = audio_path
-            if not audio_path.lower().endswith('.wav'):
-                wav_path = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}.wav")
-                if not self.convert_audio_to_wav(audio_path, wav_path):
-                    result['error'] = "Failed to convert audio to WAV format"
-                    return result
+            audio_data = None
+            
+            # Check if file is already WAV
+            if audio_path.lower().endswith('.wav'):
+                logger.info("File is already WAV, processing directly")
+                wav_path = audio_path
+            else:
+                # Try to load directly with pydub first
+                try:
+                    logger.info(f"Attempting direct processing of {os.path.splitext(audio_path)[1]} file")
+                    audio_segment = AudioSegment.from_file(audio_path)
+                    # Convert to WAV format in memory
+                    wav_path = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}.wav")
+                    audio_segment.export(wav_path, format="wav")
+                    logger.info("Direct processing successful")
+                except Exception as e:
+                    logger.info(f"Direct processing failed: {e}, falling back to ffmpeg conversion")
+                    # Fallback to ffmpeg conversion
+                    wav_path = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}.wav")
+                    if not self.convert_audio_to_wav(audio_path, wav_path):
+                        result['error'] = "Failed to convert audio to WAV format"
+                        return result
             
             # Load audio file
             with sr.AudioFile(wav_path) as source:
@@ -593,6 +610,78 @@ def health_check():
         'supported_formats': len(SUPPORTED_FORMATS),
         'supported_languages': len(LANGUAGE_MAPPING)
     })
+
+@app.route('/api/convert-audio', methods=['POST'])
+def convert_audio_format():
+    """API endpoint for audio format conversion only"""
+    try:
+        # Check if file is present
+        if 'audio_file' not in request.files:
+            return jsonify({'error': 'No audio file provided'}), 400
+        
+        file = request.files['audio_file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        # Check file size (limit to 25MB)
+        file.seek(0, 2)
+        file_size = file.tell()
+        file.seek(0)
+        
+        if file_size > 25 * 1024 * 1024:
+            return jsonify({'error': 'File too large. Maximum size is 25MB.'}), 400
+        
+        # Get output format
+        output_format = request.form.get('output_format', 'wav').lower()
+        if output_format not in SUPPORTED_FORMATS:
+            return jsonify({'error': f'Unsupported output format: {output_format}'}), 400
+        
+        # Validate input file format
+        filename = secure_filename(file.filename)
+        file_ext = os.path.splitext(filename)[1].lower().lstrip('.')
+        
+        if file_ext not in SUPPORTED_FORMATS:
+            return jsonify({'error': f'Unsupported input format: {file_ext}'}), 400
+        
+        # Save uploaded file
+        temp_filename = f"{uuid.uuid4()}.{file_ext}"
+        temp_path = os.path.join(app.config['UPLOAD_FOLDER'], temp_filename)
+        file.save(temp_path)
+        
+        try:
+            # Convert audio format
+            output_filename = f"{os.path.splitext(filename)[0]}_converted.{output_format}"
+            output_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{uuid.uuid4()}.{output_format}")
+            
+            # Use pydub for conversion
+            audio = AudioSegment.from_file(temp_path)
+            audio.export(output_path, format=output_format)
+            
+            # Generate download filename
+            download_filename = f"{os.path.splitext(filename)[0]}_converted.{output_format}"
+            
+            # Return the converted file as download
+            return send_file(
+                output_path,
+                as_attachment=True,
+                download_name=download_filename,
+                mimetype=f'audio/{output_format}'
+            )
+            
+        except Exception as e:
+            logger.error(f"Audio conversion failed: {str(e)}")
+            return jsonify({'error': f'Audio conversion failed: {str(e)}'}), 500
+            
+        finally:
+            # Clean up temporary files
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            if os.path.exists(output_path):
+                os.remove(output_path)
+                
+    except Exception as e:
+        logger.error(f"Audio conversion endpoint error: {str(e)}")
+        return jsonify({'error': f'Server error: {str(e)}'}), 500
 
 
 @app.route('/api/test-offline')

@@ -286,7 +286,20 @@
                     </select>
                 </div>
 
+                <div class="form-group">
+                    <label for="outputFormat">Output Format (for audio conversion):</label>
+                    <select id="outputFormat" name="output_format">
+                        <option value="wav">WAV</option>
+                        <option value="mp3">MP3</option>
+                        <option value="aac">AAC</option>
+                        <option value="m4a">M4A</option>
+                        <option value="ogg">OGG</option>
+                        <option value="flac">FLAC</option>
+                    </select>
+                </div>
+
                 <button type="submit" class="convert-btn" id="convertBtn">Convert to Word Document</button>
+                <button type="button" class="convert-btn" id="convertAudioBtn" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); margin-top: 10px;">Convert Audio Format Only</button>
             </form>
 
             <div class="loading" id="loading">
@@ -356,6 +369,70 @@
             console.log('Button clicked!');
             e.preventDefault();
             uploadForm.dispatchEvent(new Event('submit'));
+        });
+
+        // Add audio conversion button listener
+        document.getElementById('convertAudioBtn').addEventListener('click', async (e) => {
+            e.preventDefault();
+            
+            const file = audioFile.files[0];
+            const outputFormat = document.getElementById('outputFormat').value;
+            
+            if (!file) {
+                showResult('Please select an audio file first.', 'error');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('audio_file', file);
+            formData.append('output_format', outputFormat);
+            
+            // Show loading state
+            loading.classList.add('show');
+            result.classList.remove('show');
+            convertBtn.disabled = true;
+            document.getElementById('convertAudioBtn').disabled = true;
+            
+            try {
+                const response = await fetch('/api/convert-audio', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (response.ok) {
+                    // Get filename from response headers
+                    const contentDisposition = response.headers.get('Content-Disposition');
+                    let filename = `converted.${outputFormat}`;
+                    if (contentDisposition) {
+                        const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+                        if (filenameMatch) {
+                            filename = filenameMatch[1];
+                        }
+                    }
+                    
+                    // Download the file
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                    
+                    showResult(`Audio converted to ${outputFormat.toUpperCase()} and downloaded successfully!`, 'success');
+                } else {
+                    const errorData = await response.json();
+                    showResult(`Error: ${errorData.error || 'Audio conversion failed'}`, 'error');
+                }
+            } catch (error) {
+                showResult(`Network error: ${error.message}`, 'error');
+            } finally {
+                loading.classList.remove('show');
+                convertBtn.disabled = false;
+                document.getElementById('convertAudioBtn').disabled = false;
+            }
         });
 
         // Form submission
