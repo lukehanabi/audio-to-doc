@@ -19,8 +19,8 @@ python-docx==1.1.0
 # Additional dependencies
 requests==2.32.5
 
-# Speaker Diarization
-pyannote.audio==3.1.1
-torch==2.1.0
-torchaudio==2.1.0
-numpy<2.0.0
+# Speaker Diarization (disabled to save memory)
+# pyannote.audio==3.1.1
+# torch==2.1.0
+# torchaudio==2.1.0
+# numpy<2.0.0

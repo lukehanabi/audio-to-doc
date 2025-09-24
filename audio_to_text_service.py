@@ -49,24 +49,17 @@ SUPPORTED_FORMATS = {
 }
 
 # Language mapping for speech recognition
+# Language mapping for Vosk models (only Spanish and English to save memory)
 LANGUAGE_MAPPING = {
-    'english': 'en-US',
     'spanish': 'es-ES',
-    'french': 'fr-FR',
-    'german': 'de-DE',
-    'italian': 'it-IT',
-    'portuguese': 'pt-PT',
+    'english': 'en-US',
     'auto': None
 }
 
-# Vosk model paths
+# Vosk model paths (only Spanish and English)
 VOSK_MODELS = {
-    'en-US': '/app/models/vosk-model-small-en-us-0.15',
     'es-ES': '/app/models/vosk-model-small-es-0.42',
-    'fr-FR': '/app/models/vosk-model-small-fr-0.22',
-    'de-DE': '/app/models/vosk-model-small-de-0.15',
-    'it-IT': '/app/models/vosk-model-small-it-0.22',
-    'pt-PT': '/app/models/vosk-model-small-pt-0.3'
+    'en-US': '/app/models/vosk-model-small-en-us-0.15'
 }
 
 class AudioToTextConverter:

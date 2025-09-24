@@ -21,9 +21,6 @@ RUN apt-get update && apt-get install -y \
     libasound2-dev \
     wget \
     unzip \
-    libsndfile1 \
-    libsox-fmt-all \
-    sox \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
@@ -33,27 +30,15 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Download Vosk models for multiple languages
+# Download only Spanish and English Vosk models to save memory
 RUN mkdir -p /app/models && \
     cd /app/models && \
-    wget -q https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip && \
-    unzip vosk-model-small-en-us-0.15.zip && \
-    rm vosk-model-small-en-us-0.15.zip && \
     wget -q https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip && \
     unzip vosk-model-small-es-0.42.zip && \
     rm vosk-model-small-es-0.42.zip && \
-    wget -q https://alphacephei.com/vosk/models/vosk-model-small-fr-0.22.zip && \
-    unzip vosk-model-small-fr-0.22.zip && \
-    rm vosk-model-small-fr-0.22.zip && \
-    wget -q https://alphacephei.com/vosk/models/vosk-model-small-de-0.15.zip && \
-    unzip vosk-model-small-de-0.15.zip && \
-    rm vosk-model-small-de-0.15.zip && \
-    wget -q https://alphacephei.com/vosk/models/vosk-model-small-it-0.22.zip && \
-    unzip vosk-model-small-it-0.22.zip && \
-    rm vosk-model-small-it-0.22.zip && \
-    wget -q https://alphacephei.com/vosk/models/vosk-model-small-pt-0.3.zip && \
-    unzip vosk-model-small-pt-0.3.zip && \
-    rm vosk-model-small-pt-0.3.zip
+    wget -q https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip && \
+    unzip vosk-model-small-en-us-0.15.zip && \
+    rm vosk-model-small-en-us-0.15.zip
 
 # Copy application code
 COPY . .
