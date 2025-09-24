@@ -1,17 +1,18 @@
 # 🎵 Audio to Text Conversion Service
 
-A comprehensive web service that converts audio files to text with support for multiple audio formats and languages including Spanish, English, and many others. **Dockerized and ready for deployment on Render.com!**
+A comprehensive **offline-only** web service that converts audio files to text with support for multiple audio formats and languages. **Dockerized and optimized for deployment on Render.com with multithreading support!**
 
 ## ✨ Features
 
-- **Multiple Audio Formats**: Supports MP3, WAV, AAC, M4A, OGG, FLAC, WMA, MP4, WebM
-- **Multi-Language Support**: Spanish, English, French, German, Italian, Portuguese, Russian, Chinese, Japanese, Korean, Arabic, Hindi, and more
-- **Auto-Detection**: Automatic language detection when language is set to "auto"
-- **Multiple Recognition Engines**: Google Speech Recognition (online) and PocketSphinx (offline)
-- **Modern Web Interface**: Beautiful, responsive web UI with drag-and-drop support
-- **REST API**: Full API endpoints for integration with other applications
-- **Progress Tracking**: Real-time upload and processing progress
-- **Error Handling**: Comprehensive error handling and user feedback
+- **🎯 Offline-Only Processing**: Uses Vosk for speech recognition - no internet required
+- **📄 Word Document Output**: Generates professional .docx files with transcribed text
+- **🔄 Audio Format Conversion**: Convert between different audio formats (MP3, WAV, AAC, etc.)
+- **🌍 Multi-Language Support**: Spanish, English with auto-detection
+- **⚡ Multithreading**: Handles up to 5 concurrent requests with smart queue management
+- **🎨 Modern Web Interface**: Clean, minimalist UI with drag-and-drop support
+- **📊 Real-time Monitoring**: Queue status and health check endpoints
+- **🐳 Docker Ready**: Optimized for cloud deployment with memory efficiency
+- **📱 Responsive Design**: Works on desktop and mobile devices
 
 ## 🚀 Quick Start
 
@@ -34,35 +35,7 @@ A comprehensive web service that converts audio files to text with support for m
 3. **Open your browser:**
    Navigate to [http://localhost:5000](http://localhost:5000)
 
-### Option 2: Local Development
-
-1. **Prerequisites:**
-   - Python 3.7+
-   - FFmpeg installed
-
-2. **Install FFmpeg:**
-   ```bash
-   # macOS
-   brew install ffmpeg
-   
-   # Ubuntu/Debian
-   sudo apt update && sudo apt install ffmpeg
-   ```
-
-3. **Setup:**
-   ```bash
-   # Create virtual environment
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   
-   # Install dependencies
-   pip install -r requirements.txt
-   
-   # Run the service
-   python audio_to_text_service.py
-   ```
-
-### Option 3: Deploy to Render.com
+### Option 2: Deploy to Render.com
 
 1. **Push to GitHub** (if not already done)
 2. **Connect to Render.com:**
@@ -72,10 +45,8 @@ A comprehensive web service that converts audio files to text with support for m
 3. **Configure:**
    - Environment: `Docker`
    - Dockerfile Path: `./Dockerfile`
-   - Plan: Choose based on your needs
+   - Plan: Choose based on your needs (512MB+ recommended)
 4. **Deploy!**
-
-See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed deployment instructions.
 
 ## 📁 Project Structure
 
@@ -87,11 +58,7 @@ audio-to-text-service/
 ├── requirements.txt           # Python dependencies
 ├── Dockerfile                 # Docker configuration
 ├── docker-compose.yml         # Docker Compose for local development
-├── render.yaml               # Render.com deployment configuration
-├── .dockerignore             # Docker ignore file
-├── test_service.py           # Test script
-├── DEPLOYMENT.md             # Detailed deployment guide
-├── README.md                 # This file
+├── README.md                  # This file
 └── static/                   # Static files (created automatically)
 ```
 
@@ -100,44 +67,62 @@ audio-to-text-service/
 ### Web Interface
 
 1. **Upload Audio File**: Drag and drop or click to select an audio file
-2. **Select Language**: Choose the language of the audio (or "Auto" for detection)
-3. **Convert**: Click "Convert to Text" and wait for processing
-4. **Copy Result**: Use the copy button to copy the transcribed text
+2. **Select Language**: Choose Spanish, English, or Auto-detect
+3. **Choose Action**:
+   - **Convert to Word Document**: Transcribe audio and download as .docx
+   - **Convert Audio Format Only**: Convert between audio formats
+4. **Download Result**: Get your Word document or converted audio file
 
 ### API Endpoints
 
-#### Convert Audio to Text
+#### Convert Audio to Word Document
 ```http
 POST /api/convert
 Content-Type: multipart/form-data
 
 Parameters:
 - audio_file: Audio file (required)
-- language: Language code (optional, default: 'auto')
+- language: Language (optional: 'spanish', 'english', 'auto')
 ```
 
 **Example using curl:**
 ```bash
-curl -X POST -F "audio_file=@example.mp3" -F "language=spanish" http://localhost:5000/api/convert
+curl -X POST -F "audio_file=@example.mp3" -F "language=spanish" \
+  http://localhost:5000/api/convert \
+  --output transcription.docx
+```
+
+#### Convert Audio Format Only
+```http
+POST /api/convert-audio
+Content-Type: multipart/form-data
+
+Parameters:
+- audio_file: Audio file (required)
+- output_format: Output format (required: 'wav', 'mp3', 'aac', 'm4a', 'ogg', 'flac')
+```
+
+**Example using curl:**
+```bash
+curl -X POST -F "audio_file=@example.wav" -F "output_format=mp3" \
+  http://localhost:5000/api/convert-audio \
+  --output converted.mp3
+```
+
+#### Get Service Status
+```http
+GET /api/status
 ```
 
 **Response:**
 ```json
 {
-  "success": true,
-  "text": "Transcribed text here...",
-  "confidence": 0.8,
-  "language_detected": "es-ES",
-  "service_used": "google",
-  "filename": "example.mp3",
-  "file_size": 1024000,
-  "language_requested": "spanish"
+  "status": "running",
+  "active_requests": 2,
+  "max_concurrent_requests": 5,
+  "queue_size": 0,
+  "can_accept_requests": true
 }
-```
-
-#### Get Supported Formats
-```http
-GET /api/formats
 ```
 
 #### Health Check
@@ -145,27 +130,22 @@ GET /api/formats
 GET /api/health
 ```
 
+#### Get Supported Formats
+```http
+GET /api/formats
+```
+
 ## 🌍 Supported Languages
 
-| Language | Code | Status |
-|----------|------|--------|
-| Spanish | es-ES | ✅ |
-| English (US) | en-US | ✅ |
-| English (UK) | en-GB | ✅ |
-| French | fr-FR | ✅ |
-| German | de-DE | ✅ |
-| Italian | it-IT | ✅ |
-| Portuguese | pt-PT | ✅ |
-| Russian | ru-RU | ✅ |
-| Chinese | zh-CN | ✅ |
-| Japanese | ja-JP | ✅ |
-| Korean | ko-KR | ✅ |
-| Arabic | ar-SA | ✅ |
-| Hindi | hi-IN | ✅ |
-| Auto-detect | auto | ✅ |
+| Language | Code | Status | Model |
+|----------|------|--------|-------|
+| Spanish | es-ES | ✅ | vosk-model-small-es-0.42 |
+| English (US) | en-US | ✅ | vosk-model-small-en-us-0.15 |
+| Auto-detect | auto | ✅ | Based on selection |
 
 ## 🎵 Supported Audio Formats
 
+### Input Formats
 - **MP3** - Most common audio format
 - **WAV** - Uncompressed audio
 - **AAC** - Advanced Audio Coding
@@ -176,85 +156,153 @@ GET /api/health
 - **MP4** - Video container with audio
 - **WebM** - Web-optimized format
 
+### Output Formats (Audio Conversion)
+- **WAV** - Uncompressed audio
+- **MP3** - Compressed audio
+- **AAC** - Advanced Audio Coding
+- **M4A** - iTunes audio format
+- **OGG** - Open source audio format
+- **FLAC** - Lossless audio compression
+
+## ⚡ Performance & Multithreading
+
+### Current Configuration
+- **3 Gunicorn Workers** with **2 threads each**
+- **Maximum 5 concurrent requests**
+- **600-second timeout** for large files
+- **Smart queue management** with overload protection
+- **Request recycling** (workers restart after 100 requests)
+
+### Memory Optimization
+- **Offline-only processing** (no internet dependencies)
+- **Optimized Vosk models** (Spanish + English only)
+- **Efficient audio processing** with direct format support
+- **25MB file size limit** to prevent memory issues
+
 ## ⚙️ Configuration
 
 ### Environment Variables
 
-You can customize the service using environment variables:
-
 ```bash
-export FLASK_ENV=production          # Set to production mode
-export MAX_CONTENT_LENGTH=50000000   # Max file size (50MB)
-export UPLOAD_FOLDER=/tmp/uploads    # Upload directory
+export MAX_CONTENT_LENGTH=26214400    # Max file size (25MB)
+export UPLOAD_FOLDER=/tmp/uploads     # Upload directory
+export SECRET_KEY=your-secret-key     # Flask secret key
 ```
 
-### Speech Recognition Settings
+### Multithreading Settings
 
-The service uses multiple recognition engines:
+You can adjust these values in `audio_to_text_service.py`:
 
-1. **Google Speech Recognition** (Primary)
-   - Requires internet connection
-   - Supports all languages
-   - Higher accuracy
+```python
+max_concurrent_requests = 5  # Maximum concurrent requests
+```
 
-2. **PocketSphinx** (Fallback)
-   - Works offline
-   - English only
-   - Lower accuracy but faster
+And in `Dockerfile`:
+
+```dockerfile
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "3", "--threads", "2", ...]
+```
 
 ## 🔧 Troubleshooting
 
 ### Common Issues
 
-1. **"FFmpeg not found" error:**
-   - Install FFmpeg and ensure it's in your system PATH
-   - Restart the service after installation
+1. **"Server is busy" error (503):**
+   - The service is handling maximum concurrent requests
+   - Wait a few moments and try again
+   - Check `/api/status` for current queue status
 
-2. **"No module named 'pocketsphinx'" error:**
-   - Install system dependencies: `sudo apt-get install portaudio19-dev python3-pyaudio`
-   - Then: `pip install pocketsphinx`
+2. **"File too large" error:**
+   - Maximum file size is 25MB
+   - Compress your audio file or use a shorter recording
 
-3. **Audio format not supported:**
-   - Ensure FFmpeg is installed with all codecs
-   - Check if the file is corrupted
-
-4. **Recognition fails:**
-   - Check internet connection (for Google Speech Recognition)
+3. **"No speech detected" error:**
+   - Ensure audio contains clear speech
+   - Check audio quality and volume
    - Try a different audio file
-   - Ensure audio quality is good (clear speech, minimal background noise)
+
+4. **"Unsupported format" error:**
+   - Check if your audio format is supported
+   - Convert to a supported format first
 
 ### Performance Tips
 
-- **File Size**: Keep files under 100MB for best performance
+- **File Size**: Keep files under 25MB for optimal performance
 - **Audio Quality**: Use clear, high-quality audio for better recognition
 - **Language**: Specify the correct language for better accuracy
 - **Format**: WAV files generally provide the best results
+- **Concurrent Requests**: Monitor `/api/status` to avoid queue overload
 
 ## 🚀 Deployment
 
 ### Production Deployment
 
-For production deployment, consider using:
+The service is optimized for cloud deployment with:
 
-1. **Gunicorn** (WSGI server):
+1. **Docker Containerization**:
+   - Multi-stage build for smaller image size
+   - Health checks for container monitoring
+   - Optimized for Render.com deployment
+
+2. **Gunicorn Configuration**:
+   - Multiple workers for concurrent processing
+   - Threading support for better performance
+   - Request recycling for memory management
+
+3. **Memory Management**:
+   - Offline-only processing (no internet dependencies)
+   - Optimized model loading
+   - Efficient audio processing
+
+### Render.com Deployment
+
+1. **Repository Setup**:
    ```bash
-   pip install gunicorn
-   gunicorn -w 4 -b 0.0.0.0:5000 audio_to_text_service:app
+   git clone https://github.com/lukehanabi/audio-to-doc.git
+   cd audio-to-doc
    ```
 
-2. **Docker** (containerized deployment):
-   ```dockerfile
-   FROM python:3.9-slim
-   RUN apt-get update && apt-get install -y ffmpeg
-   COPY . /app
-   WORKDIR /app
-   RUN pip install -r requirements.txt
-   EXPOSE 5000
-   CMD ["python", "audio_to_text_service.py"]
-   ```
+2. **Render.com Configuration**:
+   - Environment: `Docker`
+   - Dockerfile Path: `./Dockerfile`
+   - Plan: 512MB+ recommended
+   - Health Check: `/api/health`
 
-3. **Nginx** (reverse proxy):
-   Configure Nginx to proxy requests to the Flask application
+3. **Environment Variables** (optional):
+   - `MAX_CONTENT_LENGTH`: File size limit
+   - `UPLOAD_FOLDER`: Upload directory
+   - `SECRET_KEY`: Flask secret key
+
+## 📊 Monitoring
+
+### Health Check
+```bash
+curl http://your-service-url/api/health
+```
+
+### Status Monitoring
+```bash
+curl http://your-service-url/api/status
+```
+
+### Logs
+Check your deployment platform's logs for detailed information about:
+- Request processing
+- Queue status
+- Error messages
+- Performance metrics
+
+## 🔄 Recent Updates
+
+### Version 2.0 Features
+- ✅ **Offline-only processing** with Vosk
+- ✅ **Word document output** (.docx files)
+- ✅ **Audio format conversion** functionality
+- ✅ **Multithreading support** (5 concurrent requests)
+- ✅ **Memory optimization** for cloud deployment
+- ✅ **Queue management** with overload protection
+- ✅ **Real-time monitoring** endpoints
+- ✅ **Simplified UI** with Spanish as default
 
 ## 📝 License
 
@@ -269,10 +317,12 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 If you encounter any issues or have questions:
 
 1. Check the troubleshooting section above
-2. Ensure all dependencies are properly installed
-3. Verify your audio file format and quality
-4. Check the service logs for detailed error messages
+2. Monitor the `/api/status` endpoint for service health
+3. Check the service logs for detailed error messages
+4. Ensure your audio file meets the requirements
 
 ---
 
 **Happy transcribing! 🎤➡️📝**
+
+*Built with ❤️ using Flask, Vosk, and Docker*
