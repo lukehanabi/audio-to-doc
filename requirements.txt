@@ -1,0 +1,26 @@
+# Audio to Text Conversion Service Requirements
+# Optimized for Docker deployment - OFFLINE ONLY
+
+# Web Framework
+Flask==2.3.3
+Werkzeug==2.3.7
+gunicorn==21.2.0
+
+# Speech Recognition (Offline only - using Vosk as alternative)
+SpeechRecognition==3.10.0
+vosk==0.3.45
+
+# Audio Processing
+pydub==0.25.1
+
+# Document Generation
+python-docx==1.1.0
+
+# Additional dependencies
+requests==2.32.5
+
+# Speaker Diarization
+pyannote.audio==3.1.1
+torch==2.1.0
+torchaudio==2.1.0
+numpy<2.0.0
