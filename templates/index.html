@@ -182,35 +182,6 @@
             100% { transform: rotate(360deg); }
         }
         
-        .progress-container {
-            margin: 20px 0;
-            max-width: 300px;
-            margin-left: auto;
-            margin-right: auto;
-        }
-        
-        .progress-bar {
-            width: 100%;
-            height: 20px;
-            background-color: #f0f0f0;
-            border-radius: 10px;
-            overflow: hidden;
-            margin-bottom: 10px;
-        }
-        
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #4facfe, #00f2fe);
-            border-radius: 10px;
-            width: 0%;
-            transition: width 0.3s ease;
-        }
-        
-        .progress-text {
-            font-size: 14px;
-            color: #666;
-            font-weight: 500;
-        }
 
         .result {
             display: none;
@@ -334,13 +305,7 @@
 
         <div class="loading" id="loading">
             <div class="spinner"></div>
-            <p id="loadingText">Processing audio file...</p>
-            <div class="progress-container" id="progressContainer" style="display: none;">
-                <div class="progress-bar">
-                    <div class="progress-fill" id="progressFill"></div>
-                </div>
-                <div class="progress-text" id="progressText">0%</div>
-            </div>
+            <p>Processing audio file...</p>
             <p style="font-size: 0.9em; color: #666; margin-top: 10px;">Large files may take several minutes. Please wait...</p>
         </div>
 
@@ -500,17 +465,6 @@
             result.classList.remove('show');
             convertBtn.disabled = true;
             
-            // Show progress bar and start progress simulation
-            document.getElementById('progressContainer').style.display = 'block';
-            updateProgress(0, "Starting conversion...");
-            
-            // Start progress simulation
-            let progress = 0;
-            const progressInterval = setInterval(() => {
-                progress += Math.random() * 10;
-                if (progress > 90) progress = 90;
-                updateProgress(Math.floor(progress), "Processing audio...");
-            }, 1000);
             
             try {
                 const response = await fetch('/api/convert', {
@@ -519,9 +473,6 @@
                 });
                 
                 if (response.ok) {
-                    // Clear progress interval and show completion
-                    clearInterval(progressInterval);
-                    updateProgress(100, "Complete!");
                     
                     // Get filename from response headers
                     const contentDisposition = response.headers.get('Content-Disposition');
@@ -554,11 +505,9 @@
                         // If response is not JSON, show generic error
                         showResult(`Error: Conversion failed (HTTP ${response.status})`, 'error');
                     }
-                    clearInterval(progressInterval);
                 }
             } catch (error) {
                 showResult(`Network error: ${error.message}`, 'error');
-                clearInterval(progressInterval);
             } finally {
                 loading.classList.remove('show');
                 convertBtn.disabled = false;
@@ -570,42 +519,6 @@
             result.className = `result show ${type}`;
         }
         
-        function updateProgress(progress, message) {
-            const progressContainer = document.getElementById('progressContainer');
-            const progressFill = document.getElementById('progressFill');
-            const progressText = document.getElementById('progressText');
-            const loadingText = document.getElementById('loadingText');
-            
-            if (progress > 0) {
-                progressContainer.style.display = 'block';
-                progressFill.style.width = progress + '%';
-                progressText.textContent = progress + '%';
-                if (message) {
-                    loadingText.textContent = message;
-                }
-            }
-        }
-        
-        function startProgressTracking(requestId) {
-            const pollInterval = setInterval(async () => {
-                try {
-                    const response = await fetch(`/api/progress/${requestId}`);
-                    if (response.ok) {
-                        const data = await response.json();
-                        updateProgress(data.progress, data.message);
-                        
-                        if (data.progress >= 100) {
-                            clearInterval(pollInterval);
-                        }
-                    }
-                } catch (e) {
-                    console.error('Error fetching progress:', e);
-                    clearInterval(pollInterval);
-                }
-            }, 500); // Poll every 500ms
-            
-            return pollInterval;
-        }
     </script>
 </body>
 </html>

@@ -4,7 +4,7 @@ Audio to Text Conversion Service
 Supports multiple audio formats and languages including Spanish and English
 """
 
-from flask import Flask, request, jsonify, render_template, send_from_directory, send_file, Response
+from flask import Flask, request, jsonify, render_template, send_from_directory, send_file
 import speech_recognition as sr
 import pydub
 from pydub import AudioSegment
@@ -22,9 +22,6 @@ import vosk
 import wave
 import json as json_lib
 import numpy as np
-import threading
-import time
-from collections import deque
 # from pyannote.audio import Pipeline
 
 # Configure logging
@@ -38,18 +35,6 @@ app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_CONTENT_LENGTH', 25 *
 app.config['UPLOAD_FOLDER'] = os.environ.get('UPLOAD_FOLDER', tempfile.gettempdir())
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 
-# Enable threading for better concurrent request handling
-app.config['THREADED'] = True
-
-# Request queue for managing concurrent processing
-request_queue = deque()
-queue_lock = threading.Lock()
-active_requests = 0
-max_concurrent_requests = 2
-
-# Progress tracking for requests
-progress_tracker = {}
-progress_lock = threading.Lock()
 
 # Supported audio formats
 SUPPORTED_FORMATS = {
@@ -176,7 +161,7 @@ class AudioToTextConverter:
             logger.error(f"Error converting audio to WAV: {str(e)}")
             return False
     
-    def transcribe_audio(self, audio_path: str, language: str = 'auto', request_id: str = None) -> Dict[str, Any]:
+    def transcribe_audio(self, audio_path: str, language: str = 'auto') -> Dict[str, Any]:
         """Transcribe audio file to text"""
         result = {
             'success': False,
@@ -191,8 +176,6 @@ class AudioToTextConverter:
             wav_path = audio_path
             audio_data = None
             
-            if request_id:
-                update_progress(request_id, 25, "Loading audio file...")
             
             # Check if file is already WAV
             if audio_path.lower().endswith('.wav'):
@@ -215,8 +198,6 @@ class AudioToTextConverter:
                         result['error'] = "Failed to convert audio to WAV format"
                         return result
             
-            if request_id:
-                update_progress(request_id, 35, "Preparing for speech recognition...")
             
             # Load audio file
             with sr.AudioFile(wav_path) as source:
@@ -239,13 +220,8 @@ class AudioToTextConverter:
                     if lang_code is None:  # auto-detect, default to English
                         lang_code = 'en-US'
                     
-                    if request_id:
-                        update_progress(request_id, 40, f"Loading {lang_code} model...")
                     model = self._get_vosk_model(lang_code)
-                    
-                    if request_id:
-                        update_progress(request_id, 50, "Transcribing speech...")
-                    text, confidence, word_timestamps = self._transcribe_with_vosk(audio_data, model, request_id)
+                    text, confidence, word_timestamps = self._transcribe_with_vosk(audio_data, model)
                     
                     if text and text.strip():
                         result['success'] = True
@@ -275,7 +251,7 @@ class AudioToTextConverter:
         
         return result
     
-    def _transcribe_with_vosk(self, audio_data, model, request_id=None) -> tuple:
+    def _transcribe_with_vosk(self, audio_data, model) -> tuple:
         """Transcribe using Vosk (offline only) with timestamps - optimized for large files"""
         try:
             # Log audio data info for debugging
@@ -319,10 +295,6 @@ class AudioToTextConverter:
                 if processed_chunks % 100 == 0:
                     progress = processed_chunks/total_chunks*100
                     logger.info(f"Processed {processed_chunks}/{total_chunks} chunks ({progress:.1f}%)")
-                    if request_id:
-                        # Map Vosk progress (0-100) to overall progress (50-75)
-                        overall_progress = 50 + (progress * 0.25)
-                        update_progress(request_id, int(overall_progress), f"Transcribing... {progress:.0f}%")
 
             # Get final result
             final_result = json_lib.loads(rec.FinalResult())
@@ -548,44 +520,6 @@ def create_word_document(transcription_result: Dict[str, Any], original_filename
 # Initialize converter
 converter = AudioToTextConverter()
 
-def can_process_request():
-    """Check if we can process a new request"""
-    with queue_lock:
-        return active_requests < max_concurrent_requests
-
-def start_request():
-    """Mark a request as started"""
-    global active_requests
-    with queue_lock:
-        active_requests += 1
-        logger.info(f"Started request. Active requests: {active_requests}")
-
-def end_request():
-    """Mark a request as completed"""
-    global active_requests
-    with queue_lock:
-        active_requests = max(0, active_requests - 1)
-        logger.info(f"Ended request. Active requests: {active_requests}")
-
-def update_progress(request_id: str, progress: int, message: str = ""):
-    """Update progress for a specific request"""
-    with progress_lock:
-        progress_tracker[request_id] = {
-            'progress': progress,
-            'message': message,
-            'timestamp': time.time()
-        }
-
-def get_progress(request_id: str) -> dict:
-    """Get progress for a specific request"""
-    with progress_lock:
-        return progress_tracker.get(request_id, {'progress': 0, 'message': 'Starting...'})
-
-def clear_progress(request_id: str):
-    """Clear progress for a specific request"""
-    with progress_lock:
-        if request_id in progress_tracker:
-            del progress_tracker[request_id]
 
 @app.route('/')
 def index():
@@ -598,16 +532,6 @@ def index():
 @app.route('/api/convert', methods=['POST'])
 def convert_audio():
     """API endpoint for audio to text conversion"""
-    # Check if we can process this request
-    if not can_process_request():
-        return jsonify({'error': 'Server is busy. Please try again in a few moments.'}), 503
-    
-    # Generate unique request ID for progress tracking
-    request_id = str(uuid.uuid4())
-    start_request()
-    temp_path = None
-    doc_path = None
-    
     try:
         # Check if file is present
         if 'audio_file' not in request.files:
@@ -617,7 +541,6 @@ def convert_audio():
         if file.filename == '':
             return jsonify({'error': 'No file selected'}), 400
         
-        update_progress(request_id, 5, "Validating file...")
         
         # Check file size (limit to 25MB to prevent memory issues)
         file.seek(0, 2)  # Seek to end
@@ -639,19 +562,14 @@ def convert_audio():
                 'error': f'Unsupported file format: {file_ext}. Supported formats: {", ".join(SUPPORTED_FORMATS.keys())}'
             }), 400
         
-        update_progress(request_id, 10, "Saving file...")
         
         # Save uploaded file
         temp_filename = f"{uuid.uuid4()}.{file_ext}"
         temp_path = os.path.join(app.config['UPLOAD_FOLDER'], temp_filename)
         file.save(temp_path)
         
-        update_progress(request_id, 20, "Processing audio...")
-        
         # Convert audio to text
-        result = converter.transcribe_audio(temp_path, language, request_id)
-
-        update_progress(request_id, 80, "Creating Word document...")
+        result = converter.transcribe_audio(temp_path, language)
 
         # Add metadata
         result['filename'] = filename
@@ -661,13 +579,9 @@ def convert_audio():
         # Create Word document
         doc_path = create_word_document(result, filename)
 
-        update_progress(request_id, 95, "Preparing download...")
-
         # Generate download filename
         base_name = os.path.splitext(filename)[0]
         download_filename = f"{base_name}_transcription.docx"
-
-        update_progress(request_id, 100, "Complete!")
 
         # Return the Word document as download
         return send_file(
@@ -682,11 +596,10 @@ def convert_audio():
         return jsonify({'error': str(e)}), 500
     finally:
         # Clean up files
-        if temp_path and os.path.exists(temp_path):
+        if 'temp_path' in locals() and temp_path and os.path.exists(temp_path):
             os.remove(temp_path)
-        if doc_path and os.path.exists(doc_path):
+        if 'doc_path' in locals() and doc_path and os.path.exists(doc_path):
             os.remove(doc_path)
-        end_request()
 
 @app.route('/api/formats')
 def get_supported_formats():
@@ -706,35 +619,10 @@ def health_check():
         'supported_languages': len(LANGUAGE_MAPPING)
     })
 
-@app.route('/api/status')
-def get_status():
-    """Get current server status and queue information"""
-    with queue_lock:
-        return jsonify({
-            'status': 'running',
-            'active_requests': active_requests,
-            'max_concurrent_requests': max_concurrent_requests,
-            'queue_size': len(request_queue),
-            'can_accept_requests': active_requests < max_concurrent_requests
-        })
-
-@app.route('/api/progress/<request_id>')
-def get_progress_status(request_id):
-    """Get current progress for a specific request"""
-    progress_data = get_progress(request_id)
-    return jsonify(progress_data)
 
 @app.route('/api/convert-audio', methods=['POST'])
 def convert_audio_format():
     """API endpoint for audio format conversion only"""
-    # Check if we can process this request
-    if not can_process_request():
-        return jsonify({'error': 'Server is busy. Please try again in a few moments.'}), 503
-    
-    start_request()
-    temp_path = None
-    output_path = None
-    
     try:
         # Check if file is present
         if 'audio_file' not in request.files:
@@ -793,11 +681,10 @@ def convert_audio_format():
         return jsonify({'error': f'Server error: {str(e)}'}), 500
     finally:
         # Clean up temporary files
-        if temp_path and os.path.exists(temp_path):
+        if 'temp_path' in locals() and temp_path and os.path.exists(temp_path):
             os.remove(temp_path)
-        if output_path and os.path.exists(output_path):
+        if 'output_path' in locals() and output_path and os.path.exists(output_path):
             os.remove(output_path)
-        end_request()
 
 
 @app.route('/api/test-offline')
