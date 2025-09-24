@@ -423,8 +423,14 @@
                     
                     showResult(`Audio converted to ${outputFormat.toUpperCase()} and downloaded successfully!`, 'success');
                 } else {
-                    const errorData = await response.json();
-                    showResult(`Error: ${errorData.error || 'Audio conversion failed'}`, 'error');
+                    // Try to parse as JSON, but handle cases where it might not be
+                    try {
+                        const errorData = await response.json();
+                        showResult(`Error: ${errorData.error || 'Audio conversion failed'}`, 'error');
+                    } catch (jsonError) {
+                        // If response is not JSON, show generic error
+                        showResult(`Error: Audio conversion failed (HTTP ${response.status})`, 'error');
+                    }
                 }
             } catch (error) {
                 showResult(`Network error: ${error.message}`, 'error');
@@ -488,8 +494,14 @@
                     
                     showResult('Word document downloaded successfully!', 'success');
                 } else {
-                    const errorData = await response.json();
-                    showResult(`Error: ${errorData.error || 'Conversion failed'}`, 'error');
+                    // Try to parse as JSON, but handle cases where it might not be
+                    try {
+                        const errorData = await response.json();
+                        showResult(`Error: ${errorData.error || 'Conversion failed'}`, 'error');
+                    } catch (jsonError) {
+                        // If response is not JSON, show generic error
+                        showResult(`Error: Conversion failed (HTTP ${response.status})`, 'error');
+                    }
                 }
             } catch (error) {
                 showResult(`Network error: ${error.message}`, 'error');

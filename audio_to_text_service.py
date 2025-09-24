@@ -562,6 +562,9 @@ def convert_audio():
         return jsonify({'error': 'Server is busy. Please try again in a few moments.'}), 503
     
     start_request()
+    temp_path = None
+    doc_path = None
+    
     try:
         # Check if file is present
         if 'audio_file' not in request.files:
@@ -596,39 +599,39 @@ def convert_audio():
         temp_path = os.path.join(app.config['UPLOAD_FOLDER'], temp_filename)
         file.save(temp_path)
         
-        try:
-            # Convert audio to text
-            result = converter.transcribe_audio(temp_path, language)
-            
-            # Add metadata
-            result['filename'] = filename
-            result['file_size'] = os.path.getsize(temp_path)
-            result['language_requested'] = language
-            
-            # Create Word document
-            doc_path = create_word_document(result, filename)
-            
-            # Generate download filename
-            base_name = os.path.splitext(filename)[0]
-            download_filename = f"{base_name}_transcription.docx"
-            
-            # Return the Word document as download
-            return send_file(
-                doc_path,
-                as_attachment=True,
-                download_name=download_filename,
-                mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-            )
-            
-        finally:
-            # Clean up uploaded file
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-            end_request()
-    
+        # Convert audio to text
+        result = converter.transcribe_audio(temp_path, language)
+
+        # Add metadata
+        result['filename'] = filename
+        result['file_size'] = os.path.getsize(temp_path)
+        result['language_requested'] = language
+
+        # Create Word document
+        doc_path = create_word_document(result, filename)
+
+        # Generate download filename
+        base_name = os.path.splitext(filename)[0]
+        download_filename = f"{base_name}_transcription.docx"
+
+        # Return the Word document as download
+        return send_file(
+            doc_path,
+            as_attachment=True,
+            download_name=download_filename,
+            mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        )
+        
     except Exception as e:
         logger.error(f"Error in convert_audio: {str(e)}")
         return jsonify({'error': str(e)}), 500
+    finally:
+        # Clean up files
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
+        if doc_path and os.path.exists(doc_path):
+            os.remove(doc_path)
+        end_request()
 
 @app.route('/api/formats')
 def get_supported_formats():
@@ -668,6 +671,9 @@ def convert_audio_format():
         return jsonify({'error': 'Server is busy. Please try again in a few moments.'}), 503
     
     start_request()
+    temp_path = None
+    output_path = None
+    
     try:
         # Check if file is present
         if 'audio_file' not in request.files:
@@ -702,41 +708,35 @@ def convert_audio_format():
         temp_path = os.path.join(app.config['UPLOAD_FOLDER'], temp_filename)
         file.save(temp_path)
         
-        try:
-            # Convert audio format
-            output_filename = f"{os.path.splitext(filename)[0]}_converted.{output_format}"
-            output_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{uuid.uuid4()}.{output_format}")
-            
-            # Use pydub for conversion
-            audio = AudioSegment.from_file(temp_path)
-            audio.export(output_path, format=output_format)
-            
-            # Generate download filename
-            download_filename = f"{os.path.splitext(filename)[0]}_converted.{output_format}"
-            
-            # Return the converted file as download
-            return send_file(
-                output_path,
-                as_attachment=True,
-                download_name=download_filename,
-                mimetype=f'audio/{output_format}'
-            )
-            
-        except Exception as e:
-            logger.error(f"Audio conversion failed: {str(e)}")
-            return jsonify({'error': f'Audio conversion failed: {str(e)}'}), 500
-            
-        finally:
-            # Clean up temporary files
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-            if os.path.exists(output_path):
-                os.remove(output_path)
-            end_request()
-                
+        # Convert audio format
+        output_filename = f"{os.path.splitext(filename)[0]}_converted.{output_format}"
+        output_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{uuid.uuid4()}.{output_format}")
+        
+        # Use pydub for conversion
+        audio = AudioSegment.from_file(temp_path)
+        audio.export(output_path, format=output_format)
+        
+        # Generate download filename
+        download_filename = f"{os.path.splitext(filename)[0]}_converted.{output_format}"
+        
+        # Return the converted file as download
+        return send_file(
+            output_path,
+            as_attachment=True,
+            download_name=download_filename,
+            mimetype=f'audio/{output_format}'
+        )
+        
     except Exception as e:
         logger.error(f"Audio conversion endpoint error: {str(e)}")
         return jsonify({'error': f'Server error: {str(e)}'}), 500
+    finally:
+        # Clean up temporary files
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
+        if output_path and os.path.exists(output_path):
+            os.remove(output_path)
+        end_request()
 
 
 @app.route('/api/test-offline')
