@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Production configuration
-app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_CONTENT_LENGTH', 100 * 1024 * 1024))  # 100MB max file size
+app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_CONTENT_LENGTH', 25 * 1024 * 1024))  # 25MB max file size
 app.config['UPLOAD_FOLDER'] = os.environ.get('UPLOAD_FOLDER', tempfile.gettempdir())
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 
@@ -232,26 +232,28 @@ class AudioToTextConverter:
         return result
     
     def _transcribe_with_vosk(self, audio_data, model) -> tuple:
-        """Transcribe using Vosk (offline only) with timestamps"""
+        """Transcribe using Vosk (offline only) with timestamps - optimized for large files"""
         try:
             # Log audio data info for debugging
             logger.info(f"Audio data: {len(audio_data.frame_data)} bytes, {audio_data.sample_rate}Hz, {audio_data.sample_width} bytes per sample")
-            
+
             # Create Vosk recognizer
             rec = vosk.KaldiRecognizer(model, audio_data.sample_rate)
             rec.SetWords(True)
-            
+
             # Process audio data
             logger.info("Attempting Vosk recognition with timestamps")
-            
+
             # Convert audio data to bytes
             audio_bytes = audio_data.frame_data
-            
-            # Process in chunks
-            chunk_size = 4000
+
+            # Use larger chunks for better performance with large files
+            chunk_size = 8000  # Increased from 4000
             results = []
             word_timestamps = []
-            
+            processed_chunks = 0
+            total_chunks = len(audio_bytes) // chunk_size + 1
+
             for i in range(0, len(audio_bytes), chunk_size):
                 chunk = audio_bytes[i:i + chunk_size]
                 if rec.AcceptWaveform(chunk):
@@ -267,7 +269,12 @@ class AudioToTextConverter:
                                 'end': word_info.get('end', 0),
                                 'conf': word_info.get('conf', 0)
                             })
-            
+                
+                processed_chunks += 1
+                # Log progress every 100 chunks to avoid spam
+                if processed_chunks % 100 == 0:
+                    logger.info(f"Processed {processed_chunks}/{total_chunks} chunks ({processed_chunks/total_chunks*100:.1f}%)")
+
             # Get final result
             final_result = json_lib.loads(rec.FinalResult())
             if 'text' in final_result and final_result['text']:
@@ -281,10 +288,10 @@ class AudioToTextConverter:
                         'end': word_info.get('end', 0),
                         'conf': word_info.get('conf', 0)
                     })
-            
+
             # Combine all results
             full_text = ' '.join(results).strip()
-            
+
             if full_text:
                 # Calculate overall confidence from word confidences
                 if word_timestamps:
@@ -294,13 +301,11 @@ class AudioToTextConverter:
 
                 # Log the results for debugging
                 logger.info(f"Transcription completed: {len(full_text)} characters, {len(word_timestamps)} word timestamps")
-                if word_timestamps:
-                    logger.info(f"First few word timestamps: {word_timestamps[:3]}")
 
                 return full_text, avg_confidence, word_timestamps
             else:
                 raise Exception("No speech detected in audio")
-                
+
         except Exception as e:
             raise Exception(f"Vosk recognition error: {e}")
     
@@ -513,6 +518,14 @@ def convert_audio():
         if file.filename == '':
             return jsonify({'error': 'No file selected'}), 400
         
+        # Check file size (limit to 25MB to prevent memory issues)
+        file.seek(0, 2)  # Seek to end
+        file_size = file.tell()
+        file.seek(0)  # Reset to beginning
+        
+        if file_size > 25 * 1024 * 1024:  # 25MB limit
+            return jsonify({'error': 'File too large. Maximum size is 25MB. Please use a smaller audio file.'}), 400
+        
         # Get language parameter
         language = request.form.get('language', 'auto')
         
@@ -580,6 +593,11 @@ def health_check():
         'supported_formats': len(SUPPORTED_FORMATS),
         'supported_languages': len(LANGUAGE_MAPPING)
     })
+
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    """Health check endpoint for Docker"""
+    return jsonify({'status': 'healthy', 'service': 'audio-to-text'}), 200
 
 @app.route('/api/test-offline')
 def test_offline_recognition():
