@@ -22,6 +22,9 @@ import vosk
 import wave
 import json as json_lib
 import numpy as np
+import threading
+import time
+from collections import deque
 # from pyannote.audio import Pipeline
 
 # Configure logging
@@ -34,6 +37,15 @@ app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_CONTENT_LENGTH', 25 * 1024 * 1024))  # 25MB max file size
 app.config['UPLOAD_FOLDER'] = os.environ.get('UPLOAD_FOLDER', tempfile.gettempdir())
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
+
+# Enable threading for better concurrent request handling
+app.config['THREADED'] = True
+
+# Request queue for managing concurrent processing
+request_queue = deque()
+queue_lock = threading.Lock()
+active_requests = 0
+max_concurrent_requests = 5
 
 # Supported audio formats
 SUPPORTED_FORMATS = {
@@ -516,6 +528,25 @@ def create_word_document(transcription_result: Dict[str, Any], original_filename
 # Initialize converter
 converter = AudioToTextConverter()
 
+def can_process_request():
+    """Check if we can process a new request"""
+    with queue_lock:
+        return active_requests < max_concurrent_requests
+
+def start_request():
+    """Mark a request as started"""
+    global active_requests
+    with queue_lock:
+        active_requests += 1
+        logger.info(f"Started request. Active requests: {active_requests}")
+
+def end_request():
+    """Mark a request as completed"""
+    global active_requests
+    with queue_lock:
+        active_requests = max(0, active_requests - 1)
+        logger.info(f"Ended request. Active requests: {active_requests}")
+
 @app.route('/')
 def index():
     """Main page with upload form"""
@@ -526,6 +557,11 @@ def index():
 @app.route('/api/convert', methods=['POST'])
 def convert_audio():
     """API endpoint for audio to text conversion"""
+    # Check if we can process this request
+    if not can_process_request():
+        return jsonify({'error': 'Server is busy. Please try again in a few moments.'}), 503
+    
+    start_request()
     try:
         # Check if file is present
         if 'audio_file' not in request.files:
@@ -588,6 +624,7 @@ def convert_audio():
             # Clean up uploaded file
             if os.path.exists(temp_path):
                 os.remove(temp_path)
+            end_request()
     
     except Exception as e:
         logger.error(f"Error in convert_audio: {str(e)}")
@@ -611,9 +648,26 @@ def health_check():
         'supported_languages': len(LANGUAGE_MAPPING)
     })
 
+@app.route('/api/status')
+def get_status():
+    """Get current server status and queue information"""
+    with queue_lock:
+        return jsonify({
+            'status': 'running',
+            'active_requests': active_requests,
+            'max_concurrent_requests': max_concurrent_requests,
+            'queue_size': len(request_queue),
+            'can_accept_requests': active_requests < max_concurrent_requests
+        })
+
 @app.route('/api/convert-audio', methods=['POST'])
 def convert_audio_format():
     """API endpoint for audio format conversion only"""
+    # Check if we can process this request
+    if not can_process_request():
+        return jsonify({'error': 'Server is busy. Please try again in a few moments.'}), 503
+    
+    start_request()
     try:
         # Check if file is present
         if 'audio_file' not in request.files:
@@ -678,6 +732,7 @@ def convert_audio_format():
                 os.remove(temp_path)
             if os.path.exists(output_path):
                 os.remove(output_path)
+            end_request()
                 
     except Exception as e:
         logger.error(f"Audio conversion endpoint error: {str(e)}")
