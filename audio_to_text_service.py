@@ -22,7 +22,7 @@ import vosk
 import wave
 import json as json_lib
 import numpy as np
-from pyannote.audio import Pipeline
+# from pyannote.audio import Pipeline
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -75,9 +75,9 @@ class AudioToTextConverter:
         # Cache for loaded Vosk models
         self.models = {}
         
-        # Initialize speaker diarization pipeline
-        self.diarization_pipeline = None
-        self._load_diarization_pipeline()
+        # Speaker diarization disabled to save memory
+        # self.diarization_pipeline = None
+        # self._load_diarization_pipeline()
     
     def _get_vosk_model(self, lang_code: str):
         """Load or return cached Vosk model for given language code"""
@@ -94,43 +94,43 @@ class AudioToTextConverter:
 
         return self.models[lang_code]
     
-    def _load_diarization_pipeline(self):
-        """Load speaker diarization pipeline"""
-        try:
-            logger.info("Loading speaker diarization pipeline...")
-            # Use a different model that doesn't require authentication
-            self.diarization_pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization")
-            logger.info("Speaker diarization pipeline loaded successfully")
-        except Exception as e:
-            logger.warning(f"Failed to load speaker diarization pipeline: {e}")
-            logger.warning("Speaker diarization will not be available")
-            self.diarization_pipeline = None
+    # def _load_diarization_pipeline(self):
+    #     """Load speaker diarization pipeline"""
+    #     try:
+    #         logger.info("Loading speaker diarization pipeline...")
+    #         # Use a different model that doesn't require authentication
+    #         self.diarization_pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization")
+    #         logger.info("Speaker diarization pipeline loaded successfully")
+    #     except Exception as e:
+    #         logger.warning(f"Failed to load speaker diarization pipeline: {e}")
+    #         logger.warning("Speaker diarization will not be available")
+    #         self.diarization_pipeline = None
     
-    def _perform_speaker_diarization(self, audio_path: str) -> list:
-        """Perform speaker diarization on audio file"""
-        if not self.diarization_pipeline:
-            logger.warning("Speaker diarization pipeline not available")
-            return []
-        
-        try:
-            logger.info("Performing speaker diarization...")
-            diarization = self.diarization_pipeline(audio_path)
-            
-            speaker_segments = []
-            for turn, _, speaker in diarization.itertracks(yield_label=True):
-                speaker_segments.append({
-                    'speaker': speaker,
-                    'start': turn.start,
-                    'end': turn.end,
-                    'duration': turn.end - turn.start
-                })
-            
-            logger.info(f"Found {len(speaker_segments)} speaker segments")
-            return speaker_segments
-            
-        except Exception as e:
-            logger.error(f"Speaker diarization failed: {e}")
-            return []
+    # def _perform_speaker_diarization(self, audio_path: str) -> list:
+    #     """Perform speaker diarization on audio file"""
+    #     if not self.diarization_pipeline:
+    #         logger.warning("Speaker diarization pipeline not available")
+    #         return []
+    #     
+    #     try:
+    #         logger.info("Performing speaker diarization...")
+    #         diarization = self.diarization_pipeline(audio_path)
+    #         
+    #         speaker_segments = []
+    #         for turn, _, speaker in diarization.itertracks(yield_label=True):
+    #             speaker_segments.append({
+    #                 'speaker': speaker,
+    #                 'start': turn.start,
+    #                 'end': turn.end,
+    #                 'duration': turn.end - turn.start
+    #             })
+    #         
+    #         logger.info(f"Found {len(speaker_segments)} speaker segments")
+    #         return speaker_segments
+    #         
+    #     except Exception as e:
+    #         logger.error(f"Speaker diarization failed: {e}")
+    #         return []
         
     def convert_audio_to_wav(self, input_path: str, output_path: str) -> bool:
         """Convert any supported audio format to WAV for processing"""
@@ -305,16 +305,9 @@ class AudioToTextConverter:
             raise Exception(f"Vosk recognition error: {e}")
     
     def _transcribe_with_speakers(self, audio_path: str, language: str) -> Dict[str, Any]:
-        """Transcribe audio with speaker diarization"""
-        result = {
-            'success': False,
-            'text': '',
-            'confidence': 0.0,
-            'service_used': 'vosk_with_diarization',
-            'language_detected': None,
-            'speaker_segments': [],
-            'error': None
-        }
+        """Transcribe audio with speaker diarization (disabled - falls back to regular transcription)"""
+        logger.info("Speaker diarization is disabled, falling back to regular transcription")
+        return self.transcribe_audio(audio_path, language)
         
         try:
             # Get language code
